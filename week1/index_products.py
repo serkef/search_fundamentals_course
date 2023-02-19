@@ -1,4 +1,6 @@
 # From https://github.com/dshvadskiy/search_with_machine_learning_course/blob/main/index_products.py
+from pathlib import Path
+
 import opensearchpy
 import requests
 from lxml import etree
@@ -97,33 +99,43 @@ def get_opensearch():
 
 
 def index_file(file, index_name):
-    docs_indexed = 0
     client = get_opensearch()
     logger.info(f'Processing file : {file}')
     tree = etree.parse(file)
     root = tree.getroot()
     children = root.findall("./product")
-    docs = []
-    for child in children:
-        doc = {}
-        for idx in range(0, len(mappings), 2):
-            xpath_expr = mappings[idx]
-            key = mappings[idx + 1]
-            doc[key] = child.xpath(xpath_expr)
-        #print(doc)
-        if 'productId' not in doc or len(doc['productId']) == 0:
-            continue
-        #### Step 2.b: Create a valid OpenSearch Doc and bulk index 2000 docs at a time
-        the_doc = None
-        docs.append(the_doc)
 
+    def iter_docs():
+        for child in children:
+            doc = {}
+            for idx in range(0, len(mappings), 2):
+                xpath_expr = mappings[idx]
+                key = mappings[idx + 1]
+                doc[key] = child.xpath(xpath_expr)
+            if 'productId' not in doc or len(doc['productId']) == 0:
+                continue
+            yield {'_index': index_name, '_id': doc['sku'][0], '_source': doc}
+    docs_indexed, _ = bulk(client, iter_docs(), index=index_name, raise_on_error=True, max_retries=3)
     return docs_indexed
 
+def create_index_if_no_exist(index_name):
+    client = get_opensearch()
+    try:
+        client.indices.get(index_name)
+    except opensearchpy.exceptions.NotFoundError as exc:
+        index_file = Path(__file__).parent.parent / "opensearch" / "bbuy_products.json"
+        with open(index_file, "r") as fin:
+            import json
+            client.indices.create(index_name, body = json.loads(fin.read()))
+    client.indices.get(index_name)
+
+
 @click.command()
-@click.option('--source_dir', '-s', help='XML files source directory')
+@click.option('--source_dir', '-s', default=Path(__file__).parent.parent / "datasets" / "product_data" / "products", help='XML files source directory')
 @click.option('--index_name', '-i', default="bbuy_products", help="The name of the index to write to")
-@click.option('--workers', '-w', default=8, help="The number of workers to use to process files")
+@click.option('--workers', '-w', default=4, help="The number of workers to use to process files")
 def main(source_dir: str, index_name: str, workers: int):
+    create_index_if_no_exist(index_name)
 
     files = glob.glob(source_dir + "/*.xml")
     docs_indexed = 0
@@ -134,7 +146,7 @@ def main(source_dir: str, index_name: str, workers: int):
             docs_indexed += future.result()
 
     finish = perf_counter()
-    logger.info(f'Done. Total docs: {docs_indexed} in {(finish - start)/60} minutes')
+    logger.info(f'Done. Total docs: {docs_indexed} in {(finish - start)/60:.2f} minutes')
 
 if __name__ == "__main__":
     main()

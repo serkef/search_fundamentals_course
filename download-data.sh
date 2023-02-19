@@ -1,10 +1,10 @@
 set -eu
 
-cd /workspace/datasets
+cd ./datasets
 # TODO: put in validation checks
 #pip install kaggle
 echo "Downloading Kaggle"
-kaggle competitions download -c acm-sf-chapter-hackathon-big || (echo "Failed to download kaggle dataset.
+kaggle competitions download -c acm-sf-chapter-hackathon-big --force || (echo "Failed to download kaggle dataset.
  Make sure you installed your kaggle credentials using ./install-kaggle-token.sh and that you accepted 
  Kaggle permissions here: https://www.kaggle.com/competitions/acm-sf-chapter-hackathon-big/rules" && exit 1)
 unzip acm-sf-chapter-hackathon-big.zip
