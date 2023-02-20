@@ -76,7 +76,7 @@ def main(source_file: str, index_name: str):
             "category": group["category"].unique().tolist()
         }
         docs.append({'_index': index_name , '_source': doc})
-        if len(docs) % 10 == 0:
+        if len(docs) % 1000 == 0:
             bulk(client, docs, request_timeout=60)
             docs = []
     if len(docs) > 0:

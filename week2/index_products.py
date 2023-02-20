@@ -1,4 +1,6 @@
 # From https://github.com/dshvadskiy/search_with_machine_learning_course/blob/main/index_products.py
+from pathlib import Path
+
 import opensearchpy
 import requests
 from lxml import etree
@@ -122,7 +124,7 @@ def index_file(file, index_name):
         docs.append({'_index': index_name, '_id':doc['sku'][0], '_source' : doc})
         #docs.append({'_index': index_name, '_source': doc})
         docs_indexed += 1
-        if docs_indexed % 200 == 0:
+        if docs_indexed % 2000 == 0:
             bulk(client, docs, request_timeout=60)
             #logger.info(f'{docs_indexed} documents indexed')
             docs = []
@@ -131,23 +133,32 @@ def index_file(file, index_name):
         logger.info(f'{docs_indexed} documents indexed')
     return docs_indexed
 
+def create_index_if_no_exist(index_name):
+    client = get_opensearch()
+    try:
+        client.indices.get(index_name)
+    except opensearchpy.exceptions.NotFoundError as exc:
+        index_file = Path(__file__).parent / "conf" / "bbuy_products.json"
+        with open(index_file, "r") as fin:
+            import json
+            client.indices.create(index_name, body = json.loads(fin.read()))
+    client.indices.get(index_name)
+
 
 @click.command()
-@click.option('--source_dir', '-s', help='XML files source directory')
+@click.option('--source_dir', '-s', default=Path(__file__).parent.parent / "datasets" / "product_data" / "products", help='XML files source directory')
 @click.option('--index_name', '-i', default="bbuy_products", help="The name of the index to write to")
-@click.option('--workers', '-w', default=8, help="The number of workers to use to process files")
-def main(source_dir: str, index_name: str, workers: int):
+def main(source_dir: str, index_name: str):
+    create_index_if_no_exist(index_name)
 
     files = glob.glob(source_dir + "/*.xml")
     docs_indexed = 0
     start = perf_counter()
-    with concurrent.futures.ProcessPoolExecutor(max_workers=workers) as executor:
-        futures = [executor.submit(index_file, file, index_name) for file in files]
-        for future in concurrent.futures.as_completed(futures):
-            docs_indexed += future.result()
+    for file in files:
+        docs_indexed += index_file(file, index_name)
 
     finish = perf_counter()
-    logger.info(f'Done. Total docs: {docs_indexed} in {(finish - start)/60} minutes')
+    logger.info(f'Done. Total docs: {docs_indexed} in {(finish - start)/60:.2f} minutes')
 
 if __name__ == "__main__":
     main()
